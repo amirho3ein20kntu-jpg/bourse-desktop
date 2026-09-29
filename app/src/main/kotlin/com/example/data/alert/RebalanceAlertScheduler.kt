@@ -1,6 +1,7 @@
 package com.example.data.alert
 
 import com.example.data.local.AppDatabase
+import com.example.data.local.PortfolioScope
 import com.example.data.repository.PcmrRepository
 import com.example.domain.alert.RebalanceAlertPolicy
 import com.example.domain.calculator.PcmrEngine
@@ -38,12 +39,19 @@ object RebalanceAlertScheduler {
     }
 
     suspend fun checkOnce() {
-        val repository = PcmrRepository(AppDatabase.getDatabase())
+        val db = AppDatabase.getDatabase()
+        val portfolios = PcmrRepository(db).allPortfolios()
+        for (p in portfolios) checkPortfolio(db, p.id, PcmrRepository(db, PortfolioScope(p.id)), p.name, portfolios.size > 1)
+    }
+
+    private suspend fun checkPortfolio(db: AppDatabase, portfolioId: Long, repository: PcmrRepository, name: String, multi: Boolean) {
         val settings = repository.getCurrentSettings()
         if (!settings.isRebalanceAlertEnabled) return
 
         repository.syncLivePrices(revalueFromQuantity = settings.isLivePriceSyncEnabled)
 
+        val directory = db.portfolioDirectoryDao()
+        val (wasAbove, lastAlert) = directory.alertState(portfolioId)
         val items = repository.getCurrentPortfolioItems()
         val calculation = PcmrEngine.calculatePortfolio(items, settings)
 
@@ -52,15 +60,15 @@ object RebalanceAlertScheduler {
             thresholdPercent = settings.rebalanceThresholdPercent,
             hasPortfolio = items.isNotEmpty() && calculation.totalPv > 0.0,
             state = RebalanceAlertPolicy.AlertState(
-                wasAboveThreshold = settings.wasAboveThreshold,
-                lastAlertEpochMs = settings.lastAlertEpochMs
+                wasAboveThreshold = wasAbove,
+                lastAlertEpochMs = lastAlert
             ),
             nowEpochMs = System.currentTimeMillis()
         )
 
         if (decision.shouldNotify) {
             RebalanceNotifier.show(
-                title = "وقت بررسی ریبلنس",
+                title = if (multi) "وقت بررسی ریبلنس • $name" else "وقت بررسی ریبلنس",
                 body = RebalanceAlertPolicy.notificationText(
                     trIndex = calculation.trIndex,
                     thresholdPercent = settings.rebalanceThresholdPercent,
@@ -75,15 +83,8 @@ object RebalanceAlertScheduler {
         }
 
         val newState = decision.newState
-        if (newState.wasAboveThreshold != settings.wasAboveThreshold ||
-            newState.lastAlertEpochMs != settings.lastAlertEpochMs
-        ) {
-            repository.updateSettings(
-                settings.copy(
-                    wasAboveThreshold = newState.wasAboveThreshold,
-                    lastAlertEpochMs = newState.lastAlertEpochMs
-                )
-            )
+        if (newState.wasAboveThreshold != wasAbove || newState.lastAlertEpochMs != lastAlert) {
+            directory.saveAlertState(portfolioId, newState.wasAboveThreshold, newState.lastAlertEpochMs)
         }
     }
 }

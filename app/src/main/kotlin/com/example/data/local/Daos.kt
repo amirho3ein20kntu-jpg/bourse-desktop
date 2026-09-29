@@ -14,7 +14,7 @@ import java.sql.ResultSet
 private fun category(v: String?): AssetCategory =
     try { if (v != null) AssetCategory.valueOf(v) else AssetCategory.STOCK } catch (_: Exception) { AssetCategory.STOCK }
 
-class PortfolioDao(private val db: Db) {
+class PortfolioDao(private val db: Db, private val scope: PortfolioScope) {
     private fun map(r: ResultSet) = PortfolioEntity(
         id = r.getLong("id"),
         symbol = r.getString("symbol"),
@@ -30,20 +30,20 @@ class PortfolioDao(private val db: Db) {
         isHoldLocked = r.bool("isHoldLocked")
     )
 
-    private val all = "SELECT * FROM portfolio_items ORDER BY currentValue DESC"
+    private val all = "SELECT * FROM portfolio_items WHERE portfolioId = ? ORDER BY currentValue DESC"
 
-    fun getAllPortfolioItems(): Flow<List<PortfolioEntity>> = db.observe("portfolio_items") { db.query(all, map = ::map) }
-    suspend fun getAllPortfolioItemsDirect(): List<PortfolioEntity> = db.query(all, map = ::map)
+    fun getAllPortfolioItems(): Flow<List<PortfolioEntity>> = db.observeScoped(scope, "portfolio_items") { db.query(all, scope.current, map = ::map) }
+    suspend fun getAllPortfolioItemsDirect(): List<PortfolioEntity> = db.query(all, scope.current, map = ::map)
     suspend fun getItemById(id: Long): PortfolioEntity? =
-        db.query("SELECT * FROM portfolio_items WHERE id = ? LIMIT 1", id, map = ::map).firstOrNull()
+        db.query("SELECT * FROM portfolio_items WHERE id = ? AND portfolioId = ? LIMIT 1", id, scope.current, map = ::map).firstOrNull()
 
     private val upsertSql = """INSERT OR REPLACE INTO portfolio_items
-        (id, symbol, assetCategory, currentValue, quantity, lastPrice, averagePrice, netValueRatio,
+        (id, portfolioId, symbol, assetCategory, currentValue, quantity, lastPrice, averagePrice, netValueRatio,
          manualTargetPercent, isValueManuallySet, isCategoryManuallySet, isHoldLocked)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"""
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"""
 
     private fun args(i: PortfolioEntity, keepId: Boolean = true): Array<Any?> = arrayOf(
-        if (keepId && i.id != 0L) i.id else null, i.symbol, i.assetCategory, i.currentValue, i.quantity, i.lastPrice,
+        if (keepId && i.id != 0L) i.id else null, scope.current, i.symbol, i.assetCategory, i.currentValue, i.quantity, i.lastPrice,
         i.averagePrice, i.netValueRatio, i.manualTargetPercent, i.isValueManuallySet, i.isCategoryManuallySet, i.isHoldLocked
     )
 
@@ -53,9 +53,9 @@ class PortfolioDao(private val db: Db) {
     }
     suspend fun updateItem(item: PortfolioEntity) { db.exec(upsertSql, *args(item), table = "portfolio_items") }
     suspend fun updateAll(items: List<PortfolioEntity>) = insertAll(items)
-    suspend fun deleteItemById(id: Long) { db.exec("DELETE FROM portfolio_items WHERE id = ?", id, table = "portfolio_items") }
+    suspend fun deleteItemById(id: Long) { db.exec("DELETE FROM portfolio_items WHERE id = ? AND portfolioId = ?", id, scope.current, table = "portfolio_items") }
     suspend fun deleteItem(item: PortfolioEntity) = deleteItemById(item.id)
-    suspend fun clearAll() { db.exec("DELETE FROM portfolio_items", table = "portfolio_items") }
+    suspend fun clearAll() { db.exec("DELETE FROM portfolio_items WHERE portfolioId = ?", scope.current, table = "portfolio_items") }
 }
 
 class SettingsDao(private val db: Db) {
@@ -115,7 +115,7 @@ class FundCategoryDao(private val db: Db) {
     suspend fun clearAll() { db.exec("DELETE FROM fund_categories", table = "fund_categories") }
 }
 
-class PortfolioSnapshotDao(private val db: Db) {
+class PortfolioSnapshotDao(private val db: Db, private val scope: PortfolioScope) {
     private fun snap(r: ResultSet) = PortfolioSnapshotEntity(
         day = r.getString("day"), epochMs = r.getLong("epochMs"), totalValueRial = r.getDouble("totalValueRial"),
         principalRial = r.getDouble("principalRial"), basisValueRial = r.getDouble("basisValueRial"),
@@ -127,36 +127,36 @@ class PortfolioSnapshotDao(private val db: Db) {
     )
 
     fun getAllSnapshots(): Flow<List<PortfolioSnapshotEntity>> =
-        db.observe("portfolio_snapshots") { db.query("SELECT * FROM portfolio_snapshots ORDER BY epochMs ASC", map = ::snap) }
+        db.observeScoped(scope, "portfolio_snapshots") { db.query("SELECT * FROM portfolio_snapshots WHERE portfolioId = ? ORDER BY epochMs ASC", scope.current, map = ::snap) }
     suspend fun getLatest(): PortfolioSnapshotEntity? =
-        db.query("SELECT * FROM portfolio_snapshots ORDER BY epochMs DESC LIMIT 1", map = ::snap).firstOrNull()
+        db.query("SELECT * FROM portfolio_snapshots WHERE portfolioId = ? ORDER BY epochMs DESC LIMIT 1", scope.current, map = ::snap).firstOrNull()
 
     private val upSnap = """INSERT OR REPLACE INTO portfolio_snapshots
-        (day, epochMs, totalValueRial, principalRial, basisValueRial, trIndex, symbolCount) VALUES (?,?,?,?,?,?,?)"""
+        (portfolioId, day, epochMs, totalValueRial, principalRial, basisValueRial, trIndex, symbolCount) VALUES (?,?,?,?,?,?,?,?)"""
     private val upHold = """INSERT OR REPLACE INTO holding_snapshots
-        (day, symbol, assetCategory, quantity, valueRial, principalRial) VALUES (?,?,?,?,?,?)"""
+        (portfolioId, day, symbol, assetCategory, quantity, valueRial, principalRial) VALUES (?,?,?,?,?,?,?)"""
 
     suspend fun upsert(s: PortfolioSnapshotEntity) {
-        db.exec(upSnap, s.day, s.epochMs, s.totalValueRial, s.principalRial, s.basisValueRial, s.trIndex, s.symbolCount, table = "portfolio_snapshots")
+        db.exec(upSnap, scope.current, s.day, s.epochMs, s.totalValueRial, s.principalRial, s.basisValueRial, s.trIndex, s.symbolCount, table = "portfolio_snapshots")
     }
-    suspend fun clearAll() { db.exec("DELETE FROM portfolio_snapshots", table = "portfolio_snapshots") }
+    suspend fun clearAll() { db.exec("DELETE FROM portfolio_snapshots WHERE portfolioId = ?", scope.current, table = "portfolio_snapshots") }
 
     fun getAllHoldings(): Flow<List<HoldingSnapshotEntity>> =
-        db.observe("holding_snapshots") { db.query("SELECT * FROM holding_snapshots ORDER BY day ASC, valueRial DESC", map = ::hold) }
-    suspend fun deleteHoldingsForDay(day: String) { db.exec("DELETE FROM holding_snapshots WHERE day = ?", day, table = "holding_snapshots") }
+        db.observeScoped(scope, "holding_snapshots") { db.query("SELECT * FROM holding_snapshots WHERE portfolioId = ? ORDER BY day ASC, valueRial DESC", scope.current, map = ::hold) }
+    suspend fun deleteHoldingsForDay(day: String) { db.exec("DELETE FROM holding_snapshots WHERE portfolioId = ? AND day = ?", scope.current, day, table = "holding_snapshots") }
     suspend fun insertHoldings(list: List<HoldingSnapshotEntity>) {
         db.transaction("holding_snapshots") {
-            list.forEach { db.exec(upHold, it.day, it.symbol, it.assetCategory, it.quantity, it.valueRial, it.principalRial) }
+            list.forEach { db.exec(upHold, scope.current, it.day, it.symbol, it.assetCategory, it.quantity, it.valueRial, it.principalRial) }
         }
     }
-    suspend fun clearAllHoldings() { db.exec("DELETE FROM holding_snapshots", table = "holding_snapshots") }
+    suspend fun clearAllHoldings() { db.exec("DELETE FROM holding_snapshots WHERE portfolioId = ?", scope.current, table = "holding_snapshots") }
 
     suspend fun recordCapture(snapshot: PortfolioSnapshotEntity, holdings: List<HoldingSnapshotEntity>) {
         db.transaction("portfolio_snapshots", "holding_snapshots") {
-            db.exec(upSnap, snapshot.day, snapshot.epochMs, snapshot.totalValueRial, snapshot.principalRial,
+            db.exec(upSnap, scope.current, snapshot.day, snapshot.epochMs, snapshot.totalValueRial, snapshot.principalRial,
                 snapshot.basisValueRial, snapshot.trIndex, snapshot.symbolCount)
-            db.exec("DELETE FROM holding_snapshots WHERE day = ?", snapshot.day)
-            holdings.forEach { db.exec(upHold, it.day, it.symbol, it.assetCategory, it.quantity, it.valueRial, it.principalRial) }
+            db.exec("DELETE FROM holding_snapshots WHERE portfolioId = ? AND day = ?", scope.current, snapshot.day)
+            holdings.forEach { db.exec(upHold, scope.current, it.day, it.symbol, it.assetCategory, it.quantity, it.valueRial, it.principalRial) }
         }
     }
 }
@@ -192,4 +192,40 @@ class InflationRateDao(private val db: Db) {
     suspend fun delete(year: Int, month: Int) {
         db.exec("DELETE FROM inflation_rates WHERE jalaliYear = ? AND jalaliMonth = ?", year, month, table = "inflation_rates")
     }
+}
+
+data class PortfolioInfo(val id: Long, val name: String)
+
+/** فهرست پورتفوها («خودم»، «همسرم»، …). تنظیمات و دسته‌بندی صندوق‌ها بین همه مشترک است. */
+class PortfolioDirectoryDao(private val db: Db) {
+    private fun map(r: ResultSet) = PortfolioInfo(r.getLong("id"), r.getString("name"))
+
+    fun observeAll(): Flow<List<PortfolioInfo>> =
+        db.observe("portfolios") { db.query("SELECT * FROM portfolios ORDER BY id", map = ::map) }
+    suspend fun getAll(): List<PortfolioInfo> = db.query("SELECT * FROM portfolios ORDER BY id", map = ::map)
+
+    suspend fun create(name: String): Long =
+        db.exec("INSERT INTO portfolios (name, createdAtEpochMs) VALUES (?,?)", name.trim(), System.currentTimeMillis(), table = "portfolios")
+    suspend fun rename(id: Long, name: String) { db.exec("UPDATE portfolios SET name = ? WHERE id = ?", name.trim(), id, table = "portfolios") }
+
+    /** پورتفو را با همه‌ی دارایی‌ها و تاریخچه‌اش حذف می‌کند. */
+    suspend fun delete(id: Long) {
+        db.transaction("portfolios", "portfolio_items", "portfolio_snapshots", "holding_snapshots") {
+            db.exec("DELETE FROM portfolio_items WHERE portfolioId = ?", id)
+            db.exec("DELETE FROM portfolio_snapshots WHERE portfolioId = ?", id)
+            db.exec("DELETE FROM holding_snapshots WHERE portfolioId = ?", id)
+            db.exec("DELETE FROM portfolios WHERE id = ?", id)
+        }
+    }
+
+    /** وضعیت هشدار برای هر پورتفو جدا نگه داشته می‌شود تا هشدار یکی، دیگری را خاموش نکند. */
+    fun alertState(id: Long): Pair<Boolean, Long> =
+        db.query("SELECT wasAboveThreshold, lastAlertEpochMs FROM portfolios WHERE id = ?", id) { it.bool("wasAboveThreshold") to it.getLong("lastAlertEpochMs") }
+            .firstOrNull() ?: (false to 0L)
+    fun saveAlertState(id: Long, wasAbove: Boolean, lastAlertEpochMs: Long) {
+        db.exec("UPDATE portfolios SET wasAboveThreshold = ?, lastAlertEpochMs = ? WHERE id = ?", wasAbove, lastAlertEpochMs, id)
+    }
+
+    fun savedSelection(): Long? = db.query("SELECT value FROM app_state WHERE key = 'selectedPortfolio'") { it.getString(1).toLongOrNull() }.firstOrNull()
+    fun saveSelection(id: Long) { db.exec("INSERT OR REPLACE INTO app_state (key, value) VALUES ('selectedPortfolio', ?)", id.toString()) }
 }

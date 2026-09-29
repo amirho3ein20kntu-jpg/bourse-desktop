@@ -3,6 +3,8 @@ package com.example.data.repository
 import com.example.platform.Context
 import com.example.platform.Uri
 import com.example.data.local.AppDatabase
+import com.example.data.local.PortfolioInfo
+import com.example.data.local.PortfolioScope
 import com.example.data.model.AssetCategory
 import com.example.data.model.FundCategoryEntity
 import com.example.data.model.HoldingSnapshotEntity
@@ -25,14 +27,42 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class PcmrRepository(private val database: AppDatabase) {
+class PcmrRepository(
+    private val database: AppDatabase,
+    private val scope: PortfolioScope = database.scope
+) {
 
-    private val portfolioDao = database.portfolioDao()
+    private val portfolioDao = database.portfolioDao(scope)
     private val settingsDao = database.settingsDao()
     private val fundCategoryDao = database.fundCategoryDao()
-    private val snapshotDao = database.portfolioSnapshotDao()
+    private val snapshotDao = database.portfolioSnapshotDao(scope)
     private val symbolIsinDao = database.symbolIsinDao()
     private val inflationRateDao = database.inflationRateDao()
+
+    private val directoryDao = database.portfolioDirectoryDao()
+
+    /** فهرست پورتفوها و شناسه‌ی پورتفوی فعال. */
+    val portfoliosFlow: Flow<List<PortfolioInfo>> = directoryDao.observeAll()
+    val selectedPortfolioId: kotlinx.coroutines.flow.StateFlow<Long> = scope.id
+
+    fun selectPortfolio(id: Long) {
+        scope.id.value = id
+        runCatching { directoryDao.saveSelection(id) }
+    }
+
+    suspend fun createPortfolio(name: String): Long = withContext(Dispatchers.IO) { directoryDao.create(name) }
+    suspend fun renamePortfolio(id: Long, name: String) = withContext(Dispatchers.IO) { directoryDao.rename(id, name) }
+
+    /** حذف یک پورتفو. آخرین پورتفو حذف نمی‌شود؛ اگر فعال بود، به اولین باقی‌مانده می‌رویم. */
+    suspend fun deletePortfolio(id: Long): Boolean = withContext(Dispatchers.IO) {
+        val all = directoryDao.getAll()
+        if (all.size <= 1) return@withContext false
+        directoryDao.delete(id)
+        if (scope.current == id) selectPortfolio(all.first { it.id != id }.id)
+        true
+    }
+
+    suspend fun allPortfolios(): List<PortfolioInfo> = withContext(Dispatchers.IO) { directoryDao.getAll() }
 
     val portfolioItemsFlow: Flow<List<PortfolioEntity>> = portfolioDao.getAllPortfolioItems()
     val settingsFlow: Flow<SettingsEntity?> = settingsDao.getSettingsFlow()

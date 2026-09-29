@@ -2,6 +2,9 @@ package com.example.data.local
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -75,6 +78,12 @@ class Db(path: String) {
             .let { trigger -> flow { trigger.collect { emit(withContext(Dispatchers.IO) { load() }) } } }
             .flowOn(Dispatchers.IO)
 
+    /** مثل [observe] ولی با عوض شدن پورتفوی انتخاب‌شده هم دوباره می‌خواند. */
+    fun <T> observeScoped(scope: PortfolioScope, vararg tables: String, load: () -> T): Flow<T> =
+        combine(observe(*tables) { Unit }, scope.id.distinctUntilChanged()) { _, _ -> Unit }
+            .let { trigger -> flow { trigger.collect { emit(withContext(Dispatchers.IO) { load() }) } } }
+            .flowOn(Dispatchers.IO)
+
     private fun bind(st: PreparedStatement, args: Array<out Any?>) {
         args.forEachIndexed { i, a ->
             val idx = i + 1
@@ -93,3 +102,11 @@ class Db(path: String) {
 
 fun ResultSet.bool(col: String): Boolean = getInt(col) != 0
 fun ResultSet.doubleOrNull(col: String): Double? = getDouble(col).takeUnless { wasNull() }
+
+/** پورتفوی فعال. همه‌ی DAOهای سبد و تاریخچه با این شناسه فیلتر می‌شوند. */
+class PortfolioScope(initial: Long = DEFAULT_ID) {
+    val id = kotlinx.coroutines.flow.MutableStateFlow(initial)
+    val current: Long get() = id.value
+
+    companion object { const val DEFAULT_ID = 1L }
+}
