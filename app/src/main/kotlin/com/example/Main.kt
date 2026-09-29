@@ -60,6 +60,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.example.data.alert.RebalanceAlertScheduler
 import com.example.platform.Context
+import com.example.ui.components.PortfolioPicker
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.DepositWithdrawScreen
 import com.example.ui.screens.FundRankingScreen
@@ -133,6 +134,18 @@ private fun MaterialThemeHost(viewModel: PcmrViewModel) {
                                                 fontSize = 17.sp
                                             ),
                                             color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                    },
+                                    actions = {
+                                        val portfolios by viewModel.portfolios.collectAsState()
+                                        val selectedId by viewModel.selectedPortfolioId.collectAsState()
+                                        PortfolioPicker(
+                                            portfolios = portfolios,
+                                            selectedId = selectedId,
+                                            onSelect = { viewModel.selectPortfolio(it) },
+                                            onCreate = { viewModel.createPortfolio(it) },
+                                            onRename = { id, n -> viewModel.renamePortfolio(id, n) },
+                                            onDelete = { viewModel.deletePortfolio(it) }
                                         )
                                     },
                                     colors = TopAppBarDefaults.topAppBarColors(

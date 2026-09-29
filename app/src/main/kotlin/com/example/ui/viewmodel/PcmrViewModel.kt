@@ -146,6 +146,35 @@ class PcmrViewModel : ViewModel() {
         }
     }
 
+    /** فهرست پورتفوها و پورتفوی فعال؛ تنظیمات و دسته‌بندی صندوق‌ها بین همه مشترک است. */
+    val portfolios: StateFlow<List<com.example.data.local.PortfolioInfo>> by lazy {
+        repository.portfoliosFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }
+    val selectedPortfolioId: StateFlow<Long> get() = repository.selectedPortfolioId
+
+    fun selectPortfolio(id: Long) = repository.selectPortfolio(id)
+
+    fun createPortfolio(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val id = repository.createPortfolio(name)
+            repository.selectPortfolio(id)
+            showMessage("پورتفوی «${name.trim()}» ساخته شد")
+        }
+    }
+
+    fun renamePortfolio(id: Long, name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch { repository.renamePortfolio(id, name) }
+    }
+
+    fun deletePortfolio(id: Long) {
+        viewModelScope.launch {
+            if (repository.deletePortfolio(id)) showMessage("پورتفو حذف شد")
+            else showMessage("آخرین پورتفو قابل حذف نیست")
+        }
+    }
+
     private val _riskStats = MutableStateFlow<Map<String, FundRiskStats>>(emptyMap())
     val riskStats: StateFlow<Map<String, FundRiskStats>> = _riskStats.asStateFlow()
 
