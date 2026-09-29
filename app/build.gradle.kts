@@ -33,3 +33,24 @@ compose.desktop {
     }
   }
 }
+
+// جایگزین BuildConfig اندروید: کلید FundBase از .env (اولویت) یا .env.example خوانده می‌شود.
+val generateBuildConfig by tasks.registering {
+  val envFiles = listOf(rootProject.file(".env"), rootProject.file(".env.example"))
+  val outDir = layout.buildDirectory.dir("generated/buildconfig")
+  inputs.files(envFiles.filter { it.exists() })
+  outputs.dir(outDir)
+  doLast {
+    fun read(key: String): String = envFiles.filter { it.exists() }.firstNotNullOfOrNull { f ->
+      f.readLines().map { it.trim() }.firstOrNull { it.startsWith("$key=") }?.substringAfter("=")?.trim()
+    } ?: ""
+    val file = outDir.get().file("com/example/BuildConfig.kt").asFile
+    file.parentFile.mkdirs()
+    file.writeText(
+      "package com.example\n\nobject BuildConfig {\n" +
+        "    const val FUNDBASE_API_KEY: String = \"${read("FUNDBASE_API_KEY")}\"\n" +
+        "    const val VERSION_NAME: String = \"${project.version}\"\n}\n"
+    )
+  }
+}
+kotlin.sourceSets.main { kotlin.srcDir(generateBuildConfig) }

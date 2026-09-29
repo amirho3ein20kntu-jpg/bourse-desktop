@@ -80,7 +80,7 @@ class Db(path: String) {
 
     /** مثل [observe] ولی با عوض شدن پورتفوی انتخاب‌شده هم دوباره می‌خواند. */
     fun <T> observeScoped(scope: PortfolioScope, vararg tables: String, load: () -> T): Flow<T> =
-        combine(observe(*tables) { Unit }, scope.id.distinctUntilChanged()) { _, _ -> Unit }
+        combine(observe(*tables) { Unit }, scope.id) { _, _ -> Unit }
             .let { trigger -> flow { trigger.collect { emit(withContext(Dispatchers.IO) { load() }) } } }
             .flowOn(Dispatchers.IO)
 

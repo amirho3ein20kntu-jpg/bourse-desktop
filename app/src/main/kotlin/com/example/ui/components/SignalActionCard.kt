@@ -296,7 +296,7 @@ fun SignalActionCard(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = alert.minOrderNotice,
+                        text = alert.minOrderNotice.orEmpty(),
                         style = MaterialTheme.typography.labelSmall,
                         color = noticeColor
                     )

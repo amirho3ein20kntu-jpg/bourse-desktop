@@ -6,15 +6,15 @@ import java.io.File
 class AppDatabase(file: File) {
     private val db = Db(file.absolutePath)
 
+    /** پورتفوی انتخاب‌شده در UI. */
+    val scope = PortfolioScope(1L)
+
     init {
         migrate()
         portfolioDirectoryDao().savedSelection()
             ?.takeIf { id -> db.query("SELECT 1 FROM portfolios WHERE id = ?", id) { 1 }.isNotEmpty() }
             ?.let { scope.id.value = it }
     }
-
-    /** پورتفوی انتخاب‌شده در UI. */
-    val scope = PortfolioScope(1L)
 
     fun portfolioDirectoryDao() = PortfolioDirectoryDao(db)
     fun portfolioDao(scope: PortfolioScope = this.scope) = PortfolioDao(db, scope)

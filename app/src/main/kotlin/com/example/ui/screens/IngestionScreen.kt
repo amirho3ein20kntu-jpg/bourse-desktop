@@ -59,7 +59,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -83,7 +82,6 @@ fun IngestionScreen(
     onRestoreBackup: (Uri) -> Unit = {},
     backupFileName: () -> String = { "pcmr-backup.json" }
 ) {
-    val context = LocalContext.current
     var showEditDialog by remember { mutableStateOf<PortfolioEntity?>(null) }
     var isCreatingNew by rememberSaveable { mutableStateOf(false) }
 

@@ -1,6 +1,7 @@
 package com.example.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import java.awt.FileDialog
@@ -85,5 +86,5 @@ abstract class ViewModel {
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
     protected open fun onCleared() {}
-    fun clear() { viewModelScope.cancel(); onCleared() }
+    fun clear() { viewModelScope.coroutineContext[kotlinx.coroutines.Job]?.cancel(); onCleared() }
 }
